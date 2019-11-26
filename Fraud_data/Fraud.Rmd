@@ -1,0 +1,185 @@
+---
+title: "Fraud"
+author: "Lucia"
+date: "2018/9/24"
+output: 
+  md_document
+    
+---
+```{r}
+
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(IPtoCountry)
+library(rworldmap)
+
+```
+
+```{r setup, include=FALSE}
+data1<-read_csv("Fraud_Data.csv")
+data1 <- mutate(data1,num=data1$class)
+data1$class=as.factor(data1$class)
+library(plotly)
+```
+
+
+### Age vs Fraud 
+The graph below reveals the relationship between age and proportion of fraud. The red represents non-fraud purchase whereas the green line represents the fraud data. As shown in the graph, the two curves are relatively close to each other and amlost indistinguishable for most part. Thus age is not a good indicator. 
+```{r, Echo=FALSE}
+
+data1%>%
+  ggplot(data1,mapping=aes(x=age,y=..density..,color=class))+
+  geom_freqpoly()
+```
+
+###Purchase value vs Fraud 
+The graph below shows the relationship between purchase value of proportion of fraud, as shown in the graph the two curves are really close to each other, thus it could not be used as an indicator. 
+```{r}
+ggplot(data1)+
+  geom_freqpoly(mapping = aes(x=purchase_value,y=..density..,color=class))
+```
+
+```{r}
+a<-data1%>%
+  mutate(time=purchase_time-signup_time)%>%
+  ggplot()+
+  geom_freqpoly(mapping = aes(x=time,y=..density..,color=class))
+```
+
+
+###IP address vs Fraud 
+The IP address can be used as an indicator of users' locations. By first filtered out all the invalid ip address, we could match all the remainded ip address with certain country and calculted the proportion of fraud data. 
+The table below shows the country and users proportion of fraud. Because we are using this as an indicator for fraud, I filtered out countries with user number smaller than 100. Since it is reasonable to assume data set smaller than 100 might have strong biase. 
+```{r}
+library(IPtoCountry)
+```
+```{r}
+data1%>%
+  filter (ip_address >= 16777216, ip_address<=3758096383)%>%
+  mutate(country=IP_lookup(ip_address))%>%
+  group_by(country)%>%
+  summarize(prop=sum(num)/n(),number=n())%>%
+  filter(number>=100, prop>=0.1)%>%
+  arrange(desc(prop))
+```
+
+
+###Purchase source vs fraud
+The Direct source users have slightly higher proportion of fraud than the other two, but the difference is relatively indistinguishble. 
+
+```{r}
+data1 %>%
+  group_by(source)%>%
+  summarise(sum(num)/n())
+
+```
+The 5 types of browsers has relatively similar  proportion of fraud for their users, with Chrome and FireFox being the highest two proportions over 0.095, and IE and Opera being the lowest ones which have proportion lower than 0.090
+
+```{r}
+data1 %>%
+  group_by(browser)%>%
+  summarise(sum(num)/n())
+```
+There's no obvious correlation between fraud and gender. The proportion is 0.091  for female and 0.096 for male. thus this could not be used as an indicator. 
+```{r}
+data1 %>%
+  group_by(sex)%>%
+  summarise(sum(num)/n())
+```
+There's no obvious correlation between fraud source and used website. The gradual change of color represents the proportion of fraud, thus lighter ones represents higher proportion of fraud. But the graph shows a pretty random distribution of color, thus there's no clear correlation.  
+```{r}
+data1%>%
+  group_by(browser,source)%>%
+  mutate(prop=sum(num)/n())%>%
+  ggplot(mapping = aes(x=browser,y=source)) + 
+  geom_tile(mapping = aes(fill=prop))
+  
+```
+
+The following table represents the frequency and number of fraud per each device id which have been frauded for at least 5 times. So if the fowllowing device, especially the ones that has fraud proportion =1.0, then the stores can immediately say that this device is frauding. 
+
+```{r}
+data1%>%
+  group_by(device_id)%>%
+  summarise(number_of_fraud=sum(num),prop=sum(num)/n())%>%
+  filter(number_of_fraud>5)%>%
+  arrange(desc(prop))
+```
+
+```{r}
+ip<-read.csv("IpAddress_to_Country.csv")
+View(ip%>%
+  mutate(range=upper_bound_ip_address-lower_bound_ip_address)%>%
+  arrange(range))
+
+ttt<-character()
+
+for ()
+  
+```
+
+```{r}
+library(data.table)
+
+dt <- ip%>% as.data.table()
+setkeyv(dt,c("lower_bound_ip_address","upper_bound_ip_address"))
+
+tick<- Sys.time()
+dt[341674740<upper_bound_ip_address &341674740 >lower_bound_ip_address]
+toc<-Sys.time()
+toc-tick
+
+```
+
+
+```{r}
+library(foreach)
+library(doParallel)
+```
+
+```{r}
+
+ttt<-character()
+
+res_v<-foreach(i = 1:10, .combine='c')%do%{
+  ipp<- df$ip_address[i]
+  temp_ttt<-dt[ipp<upper_bound_ip_address & ipp>lower_bound_ip_address,country]
+  temp_ttt
+  
+}
+```
+
+```{r}
+df <- read_csv("Fraud_Data.csv")
+ip <- read_csv("IpAddress_to_Country.csv")
+
+```
+
+```{r}
+by_country <- ip %>%
+  group_by(country) %>%
+  summarise(n())
+by_country
+```
+
+```{r}
+n <- joinCountryData2Map(by_country, joinCode = "NAME", nameJoinColumn = "country")
+mapCountryData(n, nameColumnToPlot = "n()", mapTitle = "Total Number of IP by Country")
+```
+
+```{r}
+ip_country <- df %>%
+  filter(ip_address >= 16777216, ip_address <= 3758096383) %>%
+  mutate(country = IP_lookup(ip_address)) %>%
+  group_by(country) %>%
+  summarise(fraud = mean(class), num=n()) %>%
+  arrange(desc(fraud))
+ip_country
+```
+
+```{r}
+p <- joinCountryData2Map(ip_country, joinCode = "NAME", nameJoinColumn = "country")
+mapCountryData(p, nameColumnToPlot = "fraud", mapTitle = "IP Fraud Proportion by Country",catMethod="logFixedWidth")
+```
