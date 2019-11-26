@@ -1,0 +1,324 @@
+---
+title: "fraud"
+author: "Lucia"
+date: "6/3/2019"
+output: 
+   html_document:
+    keep_md: yes
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+
+library(caret)
+library(randomForest)
+library(tidyverse)
+library(rpart)
+library(rattle)
+library(gbm)
+library(ROCR)
+library(readr)
+library(rpart)
+
+fraud <- read_csv("/Users/lujiaqi/Desktop/data sci/x/DS_CLASS_2018-19_Lucia/DataSci_2/Fraud/Fraud_Data.csv")
+
+
+```
+
+
+```{r}
+fraud <-fraud %>%
+  na.omit()%>%
+  mutate(time=purchase_time-signup_time)%>%
+  mutate(sex=as.factor(sex))
+
+fraud<-select(fraud, -purchase_time,-signup_time)
+```
+## Data cleaning
+We start off the project by cleaning data set and creating new features. The newly created variable "time" measures the difference in time between the purchase time and the sign up time provided in the original data set 
+
+### Training data set 
+In this section we eliminating meaningless features first. For example, the user id, which I realized there's no repeated user id, thus we can eliminate the column from the fraud data.
+```{r}
+fraud%>%
+  group_by(user_id)%>%
+  summarise(n=n())%>%
+  arrange(desc(n))
+
+fraud<-fraud%>%
+  select(-user_id)
+```
+
+
+Since the data is an unbalanced data set with over 90% fraud data and less that 10% not fraud data, we use the createDataPartition function to generate test and train data set to fairly represent the class in order to avoid bias in data splitting
+```{r}
+set.seed(100)
+inTraining <- createDataPartition(fraud$class, p = .75, list = FALSE)
+trainingData <- fraud[inTraining, ]
+testingData<- fraud[-inTraining, ]
+```
+
+Generating new feature that counts the times of repeated device id. Because in the previous time exploring the data set, we found that the number of time a device id has been used is helpful for predicting fraud/non-fraud data. Then we merge the counts back to the original training data set
+
+```{r}
+fraud_deviceid<-trainingData%>%
+  group_by(device_id)%>%
+  summarise(id_n=n())
+
+trainingData<-merge(trainingData,fraud_deviceid,by="device_id")
+  
+```
+
+Generating new feature that counts the times of a repeated ip address. Following the same steps as mentioned just above.
+```{r}
+fraud_ipaddress<-trainingData%>%
+  group_by(ip_address)%>%
+  summarise(ip_n=n())
+
+trainingData<-merge(trainingData,fraud_ipaddress,by="ip_address")
+```
+
+Deleting columns of ip-address and device id from original data set 
+```{r}
+trainingData<-trainingData%>%
+  select(-c(ip_address,device_id))
+```
+
+Changing sex into a 0/1 factor column for easier processing later
+
+```{r}
+trainingData<-trainingData%>%
+  mutate(sex= ifelse(sex=="F",1,0))
+```
+
+Creating Dummy variables for both browser and source. Because both of them only has few levels, thus creating dummy variables helps for building a predicting model meanwhile doesn't increase the calculation by too much. Then we delete the original columns, browser and source from the data set  
+```{r}
+dmy <- dummyVars(" ~ browser", data = trainingData)
+trsf_browser <- data.frame(predict(dmy, newdata = trainingData))
+trainingData<-cbind(trainingData,trsf_browser)
+training_Data<-trainingData%>%
+  select(-c(browser))
+
+dmy <- dummyVars(" ~ source", data = trainingData)
+trsf_source <- data.frame(predict(dmy, newdata = trainingData))
+trainingData<-cbind(trainingData,trsf_source)
+
+training_Data<-training_Data%>%
+  select(-source)
+
+```
+
+
+### cleaning for testing 
+We repeat the exactly same procedure for the testing data set. The reason why we did it separately was by doing so, we did not use additional information for building the model. 
+
+```{r}
+fraud_deviceid<-testingData%>%
+  group_by(device_id)%>%
+  summarise(id_n=n())
+
+testingData<-merge(testingData,fraud_deviceid,by="device_id")
+  
+```
+
+
+```{r}
+fraud_ipaddress<-testingData%>%
+  group_by(ip_address)%>%
+  summarise(ip_n=n())
+
+testingData<-merge(testingData,fraud_ipaddress,by="ip_address")
+```
+
+
+```{r}
+testingData<-testingData%>%
+  select(-c(ip_address,device_id))
+```
+
+```{r}
+testingData<-testingData%>%
+  mutate(sex= ifelse(sex=="F",1,0))
+```
+
+
+```{r}
+dmy <- dummyVars(" ~ browser", data = testingData)
+trsf_browser <- data.frame(predict(dmy, newdata = testingData))
+testingData<-cbind(testingData,trsf_browser)
+
+
+testingData<-testingData%>%
+  select(-c(browser))
+
+dmy <- dummyVars(" ~ source", data = testingData)
+trsf_source <- data.frame(predict(dmy, newdata = testingData))
+testingData<-cbind(testingData,trsf_source)
+
+testingData<-testingData %>%
+  select(-source)
+
+```
+
+
+
+
+
+## Random Forest
+In this section we use the Random forest model for prediction. We used the training data set and testing data set generated from the data partition method mentioned in the second above. By using the random forest method, we obtained a Kappa value of *** and a small 
+
+```{r,eval=FALSE}
+start<-Sys.time()
+rf1<-randomForest(as.factor(trainingData$class)~., data=trainingData, importance =TRUE, mtry=10)
+end<-Sys.time()
+end-start
+```
+This section we built a model using random forest and the training data set.
+
+```{r,eval=FALSE}
+saveRDS(rf1,"rf_fraud.rds")
+```
+Since the model takes a long time to run, we saved it as a rds file and read it every time when we need
+```{r}
+rf1<-readRDS("rf_fraud.rds")
+```
+
+```{r}
+testforest <-predict(rf1, newdata=testingData)
+```
+Predicting the class using the random forest model built above with the testing data set
+```{r}
+table(testforest, as.factor(testingData$class))
+```
+This table shows the corresponding predicted value and actual value, 0 means not fraud and 1 means fraud. Horizontal is the actual value and the vertical is the predicted values.
+
+```{r}
+confusionMatrix(testforest, as.factor(testingData$class))
+```
+The confusion matrix tells the statistics information about the random forest model. The Kappa value is 0.6729 which means the model is better than a random guessing model which has a kappa value of 0.5. Small p-value proves the model is statistically significant. High sensitivity indicates we are good at predicting true positive rate which means that all of actual fraud (positives) have been correctly identified. 0.5380 specificity(also called the true negative rate) means that the test is almost equivalent for not fraud individuals to a random draw
+
+```{r}
+varImpPlot(rf1)
+randomForest::importance(rf1)
+
+```
+Here are the two tables that show the significant features in this model, we see that time is definitely the most important one, followed by number of repeated ip address,  purchase value , repeated times of same id and age, the other features are not as useful in this model as the ones mentioned above. 
+
+```{r,message=FALSE}
+test.forest = predict(rf1, type = "prob", newdata = testingData)
+forestpred = prediction(test.forest[,2], testingData$class)
+forestperf = performance(forestpred, "tpr", "fpr")
+
+plot(forestperf, col=3,main="ROC")
+
+
+auc.tmp <- performance(forestpred,"auc")
+auc <- as.numeric(auc.tmp@y.values)
+print(auc)
+```
+Drawing a ROC curve to evaluate the model. The green line represents the random forest model which is definitely above the diagonal line of random guessing model. The Area under the curve is about 0.78 with 1 being the best model and 0.5 being the random guessing model, which confirms that the model is actually not bad.
+
+
+## Recursive Partitioning And Regression Trees
+
+In this section, we made a classification model using the rpart function. 
+
+```{r,eval=FALSE}
+rpart.test <- rpart(class ~., data = training_Data,method="class")
+saveRDS(rpart.test,"rpart.test.rds")
+```
+
+```{r}
+rpart.test<-readRDS("rpart.test.rds")
+printcp(rpart.test)
+```
+The table above shows the classification tree statistics for rpart function. We see that there's only one node which uses 1 feature, time difference between the purchasing time and sign up time. For the time difference smaller than 69 sec (about 1 min) then there's a high chance that it's a fraud, which intuitively makes sense since human can't purchase things that quick.
+```{r}
+fancyRpartPlot(rpart.test)
+```
+This graph visualizes the decision tree that was made ealier on. There's only one node in the tree based on the feature of time difference. 
+
+```{r}
+test<-predict(rpart.test, testingData, type = "class")
+
+confusionMatrix(test,as.factor(testingData$class))
+```
+
+
+
+## Boosting 
+In this section we used boosting as a model for the predicting the class. First we clean the data by changing the time difference into a numeric value. Then we used the bgm function with bernoulli distribution, and cross validation folds at 10 for training. Then we select the best number of trees using the gbm.pref function. Later we use the model for prediction with kappa of 0.6737 and a small p-value. In this model, the most important feature is time difference and repeated time of same device id.  The rest of features, for example, user age, gender, browser and source are not useful for prediction. 
+
+```{r,eval=FALSE}
+
+set.seed(100)
+
+training_data_1<-training_Data%>%
+  mutate(time=as.numeric(time))
+testing_data_1<-testingData%>%
+  mutate(time=as.numeric(time))
+
+boost.epi = gbm(class~.,data=training_data_1, n.trees =2000 ,distribution = "bernoulli", interaction.depth =1,cv.folds = 10)
+
+saveRDS(boost.epi,"boost.epi.rds")
+```
+
+```{r}
+boost.epi<-readRDS("boost.epi.rds")
+
+bestTreeForPrediction = gbm.perf(boost.epi)
+
+print(bestTreeForPrediction)
+```
+This section helps to select the best number of trees that would be used in the model for prediction. he black line is the training bernoulli deviance and the green line is the testing bernoulli deviance. The tree selected for prediction, indicated by the vertical blue line, is the tree that minimizes the testing error on the cross-validation folds.
+
+```{r}
+summary(boost.epi)
+```
+The table shows the significance on each factor used in this model, higher rel.inf value means more important features in this model. We can see that time and repeated times of id are the most significant ones.
+
+
+```{r}
+predict_boost<-predict(boost.epi,testingData,n.trees = bestTreeForPrediction,type="response")
+```
+
+
+
+```{r}
+x<-rep(0,length(predict_boost))
+x[predict_boost > 0.5]<-1
+x=as.factor(x)
+```
+
+
+```{r}
+confusionMatrix(x,as.factor(testingData$class))
+```
+The model given by boosting has the Kappa value of 0.6737 with 1 sensitivity and 0.5326 specificity. 1 sensitivity (also called the true positive rate) means that all of actual fraud (positives) have been correctly identified. 0.5 specificity(also called the true negative rate) means that the test is almost equivalent for not fraud individuals to a random draw
+
+
+```{r,message=FALSE}
+test.forest = predict(boost.epi, type = "response", newdata = testingData)
+forestpred = prediction(test.forest, testingData$class)
+forestperf = performance(forestpred, "tpr", "fpr")
+
+plot(forestperf, col=3,main="ROC")
+
+
+auc.tmp <- performance(forestpred,"auc")
+auc <- as.numeric(auc.tmp@y.values)
+print(auc)
+```
+Drawing a ROC curve to evaluate the model. The green line represents the random forest model which is definitely above the diagonal line of random guessing model. The Area under the curve is about 0.79 with 1 being the best model and 0.5 being the random guessing model, which is slightly higher than the random forest model
+
+## Conclusion
+
+The random forest model and boosting model have almost equivalent performance, the boosting model has slightly better AUC comparing to the random forest but rf model has greater specificity rate. Thus the two models are at the same level for predicting the fraud and not-fraud data set. In both of the models, time difference in purchasing items and number of repeated ip address are the most significant features. RF models uses more features such as age and purchase value as factors in the predicting model comparing to the boosting model.
+
+
